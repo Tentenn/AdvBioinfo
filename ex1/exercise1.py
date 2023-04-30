@@ -49,12 +49,20 @@ def one_hot_encode_sequence(sequence:str, window_size=5) -> np.array:
 
     for i in range(num_rows):
         window = sequence[i:i + 2 * window_size + 1]
-        print(window)
         for j, amino_acid in enumerate(window):
             one_hot = single_one_hot_encode(amino_acid)
             one_hot_sequence[i, j * 20:(j + 1) * 20] = one_hot
 
     return one_hot_sequence
+
+
+def apply_mask(label: str, mask: str) -> List:
+    if len(label) != len(mask):
+        raise ValueError("Label and mask lengths do not match.")
+
+    result = "".join(c for c, m in zip(label, mask) if m == '1')
+
+    return [label_to_int(e) for e in result]
 
 def one_hot_encode_labeled_sequence(entry: Dict, window_size=5) -> Tuple[np.array, np.array]:
     '''This function takes an entry dict containing the sequence, the label and the resolved information
@@ -65,7 +73,23 @@ def one_hot_encode_labeled_sequence(entry: Dict, window_size=5) -> Tuple[np.arra
     Remember: Both arrays have to have the same length; In this case internal unresolved residues should be considered
     and excluded from the encoding.
     '''
-    pass
+    sequence = entry['sequence']
+    labels = entry['label']
+    resolved = entry['resolved']
+
+    label_array = apply_mask(labels, resolved)
+    num_rows = len(sequence) - 2 * window_size
+    num_cols = 20 * (2 * window_size + 1)
+
+    one_hot_sequence = np.zeros((num_rows, num_cols), dtype=np.int8)
+
+    for i in range(num_rows):
+        window = sequence[i:i + 2 * window_size + 1]
+        for j, amino_acid in enumerate(window):
+            one_hot = single_one_hot_encode(amino_acid)
+            one_hot_sequence[i, j * 20:(j + 1) * 20] = one_hot
+
+    return one_hot_sequence, label_array
 
 def predict_secondary_structure(input: np.array, labels:np.array, size_hidden=10) -> Tuple[float, float, float]:
     '''This function creates a sklearn.neural_network.MLPClassifier objects with all defaults except hidden_layer_sizes is
@@ -76,7 +100,6 @@ def predict_secondary_structure(input: np.array, labels:np.array, size_hidden=10
 
     input_file = "./data/input.jsonl"
     entries = load_jsonl(input_file)
-    
 
     X, y = make_classification(n_samples=100, random_state=1)  # 100 points, default: 20 features, 2 classes
 
@@ -134,4 +157,5 @@ if __name__ == "__main__":
     # extend as you need
     np.set_printoptions(threshold=sys.maxsize)
 
-    one_hot_encode_sequence("AAACYYY", window_size=2)
+    # print(one_hot_encode_sequence("AAACYYY", window_size=2).shape)
+    print(one_hot_encode_labeled_sequence({'sequence' : "AAACYYY", 'label':'HHHCEEE', 'resolved':'0010100'}, window_size=2))
