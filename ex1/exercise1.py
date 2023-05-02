@@ -8,19 +8,22 @@ AMINO_ACIDS = "ACEDGFIHKMLNQPSRTWVY"
 
 input_file = "./data/input.jsonl"
 
+
 def label_to_int(label: str) -> int:
     label_dict = {'H': 0, 'E': 1, 'C': 2}
     return label_dict[label]
 
-def load_jsonl(filename: str)-> List[Dict]:
+
+def load_jsonl(filename: str) -> List[Dict]:
     with open(filename) as t:
         data = []
         ## Converts the list of dicts (jsonl file) to a single dict with id -> sequence
         for d in [json.loads(line) for line in t]:
-            data.append({"sequence" : d["sequence"],
-                         "label" : d["label"],
-                         "resolved" : d["resolved"]})
+            data.append({"sequence": d["sequence"],
+                         "label": d["label"],
+                         "resolved": d["resolved"]})
     return data
+
 
 def single_one_hot_encode(amino_acid: "str") -> np.array:
     if 0 < len(amino_acid) < 1 or amino_acid not in AMINO_ACIDS:
@@ -38,7 +41,7 @@ def single_one_hot_encode(amino_acid: "str") -> np.array:
     return one_hot
 
 
-def one_hot_encode_sequence(sequence:str, window_size=5) -> np.array:
+def one_hot_encode_sequence(sequence: str, window_size=5) -> np.array:
     '''This function takes a sequence of amino acids and converts it into a 2D Numpy array
     representing the one-hot encoding. It has len(sequence) - 2*window_size rows and 20*(window_size*2 + 1) columns.
     '''
@@ -56,13 +59,20 @@ def one_hot_encode_sequence(sequence:str, window_size=5) -> np.array:
     return one_hot_sequence
 
 
-def apply_mask(label: str, mask: str) -> List:
-    if len(label) != len(mask):
-        raise ValueError("Label and mask lengths do not match.")
+def resolved_indices(resolved, window_size):
+    resolved_result = []
+    for i in range(window_size, len(resolved) - window_size):
+        if resolved[i] == "1":
+            resolved_result.append(i - window_size)
+    return np.array(resolved_result)
 
-    result = "".join(c for c, m in zip(label, mask) if m == '1')
 
-    return [label_to_int(e) for e in result]
+def convert_encoding(label: str):
+    label_array = []
+    for i, e in enumerate(label):
+        label_array.append(label_to_int(e))
+    return np.array(label_array)
+
 
 def one_hot_encode_labeled_sequence(entry: Dict, window_size=5) -> Tuple[np.array, np.array]:
     '''This function takes an entry dict containing the sequence, the label and the resolved information
@@ -77,36 +87,28 @@ def one_hot_encode_labeled_sequence(entry: Dict, window_size=5) -> Tuple[np.arra
     labels = entry['label']
     resolved = entry['resolved']
 
-    label_array = apply_mask(labels, resolved)
-    num_rows = len(sequence) - 2 * window_size
-    num_cols = 20 * (2 * window_size + 1)
+    resolved_i = resolved_indices(resolved, window_size)  # [3, 5]
+    label_array = convert_encoding(labels)
+    label_array = label_array[resolved_i+window_size]
 
-    one_hot_sequence = np.zeros((num_rows, num_cols), dtype=np.int8)
+    one_hot = one_hot_encode_sequence(sequence, window_size=window_size)
+    one_hot = one_hot[resolved_i, :]
 
-    for i in range(num_rows):
-        window = sequence[i:i + 2 * window_size + 1]
-        for j, amino_acid in enumerate(window):
-            one_hot = single_one_hot_encode(amino_acid)
-            one_hot_sequence[i, j * 20:(j + 1) * 20] = one_hot
+    return one_hot, label_array
 
-    return one_hot_sequence, label_array
 
-def predict_secondary_structure(input: np.array, labels:np.array, size_hidden=10) -> Tuple[float, float, float]:
+def predict_secondary_structure(input: np.array, labels: np.array, size_hidden=10) -> Tuple[float, float, float]:
     '''This function creates a sklearn.neural_network.MLPClassifier objects with all defaults except hidden_layer_sizes is
     set to (size_hidden,) and with random_state set to 42'''
     from sklearn.neural_network import MLPClassifier  # the neural network
     from sklearn.datasets import make_classification  # easy generation of synthetic input data
     from sklearn.model_selection import train_test_split  # to conveniantly split the data into test and training
 
-    input_file = "./data/input.jsonl"
-    entries = load_jsonl(input_file)
-
-    X, y = make_classification(n_samples=100, random_state=1)  # 100 points, default: 20 features, 2 classes
 
     # the use of X for the input feature data (2D array) and y (1D) for the target values (prediction goal) is convention
     # we fix the random_state to make multiple run reproducible
     # we use stratify=y to have the same class ratios in the training and in the testing set
-    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y,
+    X_train, X_test, y_train, y_test = train_test_split(input, labels, stratify=labels,
                                                         random_state=1)
 
     print(X_test.shape)
@@ -125,7 +127,7 @@ def predict_secondary_structure(input: np.array, labels:np.array, size_hidden=10
     print(clf.score(X_test, y_test))
 
 
-def calculate_Q3(prediction: str, truth:str) -> Tuple[float,float, float]:
+def calculate_Q3(prediction: str, truth: str) -> Tuple[float, float, float]:
     '''Compares two strings of equal length:
     prediction: string of predicted states H/E/C
     truth: string of true states H/E/C
@@ -157,5 +159,20 @@ if __name__ == "__main__":
     # extend as you need
     np.set_printoptions(threshold=sys.maxsize)
 
-    # print(one_hot_encode_sequence("AAACYYY", window_size=2).shape)
-    print(one_hot_encode_labeled_sequence({'sequence' : "AAACYYY", 'label':'HHHCEEE', 'resolved':'0010100'}, window_size=2))
+    # print(one_hot_encode_sequence("AAACYYY", window_size=2))
+    # print(one_hot_encode_labeled_sequence({'sequence' : "AAACYYY", 'label':'HHHCEEE', 'resolved':'0010100'}, window_size=2))
+    # print(cut_sequence("ABCDE", "00001"))
+    # print(convert_encoding("HEEECCEEH"))
+    input_file = "./data/input.jsonl"
+    entries = load_jsonl(input_file)
+
+    X = []
+    y = []
+    for entry in entries:
+        x0, y0 = one_hot_encode_labeled_sequence(entry)
+        X.append(x0)
+        y.append(y0)
+    X = np.ndarray(X)
+    y = np.array(y)
+    predict_secondary_structure(X, y)
+
